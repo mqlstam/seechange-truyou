@@ -16,6 +16,19 @@ app.use(express.static('public'));
 const streamKeys = new Map();
 const STREAM_EXPIRY_TIME = 5 * 60 * 1000; // 5 minutes
 
+// Stream health monitoring
+const streamHealth = new Map();
+
+function updateStreamHealth(streamKey, status) {
+    streamHealth.set(streamKey, {
+        status,
+        lastUpdate: Date.now()
+    });
+}
+
+function getStreamHealth(streamKey) {
+    return streamHealth.get(streamKey);
+}
 app.get('/streamer', (req, res) => {
     console.log('Streamer page requested');
     res.sendFile(path.join(__dirname, 'public', 'streamer.html'));
@@ -32,12 +45,18 @@ function generateStreamKey() {
     return key;
 }
 
+
+
 io.on('connection', (socket) => {
     console.log(`New client connected: ${socket.id}`);
     
     let ffmpegProcess;
     let streamKey = generateStreamKey();
     let { publicKey, privateKey } = generateKeyPair();
+    let isFFmpegRunning = false;
+    let inputBuffer = Buffer.alloc(0);
+    let isFirstChunk = true;
+    let lastDataReceived = Date.now();
     
     streamKeys.set(streamKey, { 
         publicKey, 
@@ -47,54 +66,123 @@ io.on('connection', (socket) => {
     socket.emit('streamKey', streamKey);
     console.log(`Sent stream key to client: ${streamKey}`);
 
+    function startFFmpeg() {
+        console.log('Initializing FFmpeg process');
+        const outputPath = path.join(__dirname, 'media', streamKey);
+        if (!fs.existsSync(outputPath)) {
+            fs.mkdirSync(outputPath, { recursive: true });
+            console.log(`Created output directory: ${outputPath}`);
+        }
+    
+        ffmpegProcess = spawn('ffmpeg', [
+            '-i', 'pipe:0',
+            '-c:v', 'libx264',
+            '-preset', 'superfast',
+            '-tune', 'zerolatency',
+            '-sc_threshold', '0',
+            '-g', '30',
+            '-keyint_min', '30',
+            '-c:a', 'aac',
+            '-ar', '44100',
+            '-b:a', '128k',
+            '-map', '0:v',
+            '-map', '0:a',
+            '-map', '0:v',
+            '-map', '0:a',
+            '-map', '0:v',
+            '-map', '0:a',
+            '-var_stream_map', 'v:0,a:0 v:1,a:1 v:2,a:2',
+            '-s:v:1', '1280x720',
+            '-b:v:1', '1500k',
+            '-maxrate:v:1', '1600k',
+            '-bufsize:v:1', '2250k',
+            '-s:v:2', '854x480',
+            '-b:v:2', '800k',
+            '-maxrate:v:2', '856k',
+            '-bufsize:v:2', '1200k',
+            '-f', 'hls',
+            '-hls_time', '1',
+            '-hls_list_size', '3',
+            '-hls_flags', 'delete_segments+omit_endlist+append_list+discont_start',
+            '-hls_segment_type', 'fmp4',
+            '-hls_fmp4_init_filename', 'init.mp4',
+            '-hls_segment_filename', path.join(outputPath, '%v/segment%d.m4s'),
+            '-master_pl_name', 'master.m3u8',
+            '-hls_init_time', '0',
+            path.join(outputPath, '%v/playlist.m3u8')
+        ]);
+        
+        isFFmpegRunning = true;
+
+        ffmpegProcess.stderr.on('data', (data) => {
+            console.log(`FFmpeg: ${data}`);
+        });
+
+        ffmpegProcess.on('error', (err) => {
+            console.error('FFmpeg process error:', err);
+            isFFmpegRunning = false;
+            socket.emit('streamError', 'An error occurred while processing the stream.');
+        });
+
+        ffmpegProcess.on('exit', (code, signal) => {
+            console.log(`FFmpeg process exited with code ${code} and signal ${signal}`);
+            isFFmpegRunning = false;
+            if (code !== 0) {
+                socket.emit('streamError', 'The streaming process ended unexpectedly.');
+            }
+        });
+
+        ffmpegProcess.stdin.on('error', (err) => {
+            if (err.code === 'EPIPE') {
+                console.log('FFmpeg stdin closed');
+                isFFmpegRunning = false;
+            } else {
+                console.error('FFmpeg stdin error:', err);
+            }
+        });
+
+        console.log('FFmpeg process started');
+    }
+
+    function writeToFFmpeg(data) {
+        if (ffmpegProcess && ffmpegProcess.stdin && !ffmpegProcess.stdin.destroyed) {
+            try {
+                const success = ffmpegProcess.stdin.write(data);
+                if (!success) {
+                    ffmpegProcess.stdin.once('drain', () => {
+                    });
+                }
+            } catch (err) {
+                console.error('Error writing to FFmpeg stdin:', err);
+                if (err.code === 'EPIPE') {
+                    isFFmpegRunning = false;
+                }
+            }
+        } else {
+            console.error('FFmpeg process is not ready to receive data');
+            socket.emit('streamError', 'Unable to process stream data.');
+        }
+    }
+
     socket.on('streamData', (data) => {
         try {
             console.log(`Received stream data chunk of size: ${data.byteLength} bytes`);
-            if (!ffmpegProcess) {
-                console.log('Initializing FFmpeg process');
-                const outputPath = path.join(__dirname, 'media', streamKey);
-                if (!fs.existsSync(outputPath)) {
-                    fs.mkdirSync(outputPath, { recursive: true });
-                    console.log(`Created output directory: ${outputPath}`);
-                }
-
-                ffmpegProcess = spawn('ffmpeg', [
-                    '-i', 'pipe:0',
-                    '-c:v', 'libx264',
-                    '-preset', 'veryfast',
-                    '-tune', 'zerolatency',
-                    '-c:a', 'aac',
-                    '-f', 'hls',
-                    '-hls_time', '2',
-                    '-hls_list_size', '5',
-                    '-hls_flags', 'delete_segments',
-                    path.join(outputPath, 'index.m3u8')
-                ]);
-
-                ffmpegProcess.stderr.on('data', (data) => {
-                    console.log(`FFmpeg: ${data}`);
-                });
-
-                ffmpegProcess.on('error', (err) => {
-                    console.error('FFmpeg process error:', err);
-                    socket.emit('streamError', 'An error occurred while processing the stream.');
-                });
-
-                ffmpegProcess.on('exit', (code, signal) => {
-                    console.log(`FFmpeg process exited with code ${code} and signal ${signal}`);
-                    if (code !== 0) {
-                        socket.emit('streamError', 'The streaming process ended unexpectedly.');
-                    }
-                });
-
-                console.log('FFmpeg process started');
+            
+            if (isFirstChunk) {
+                console.log(`First chunk data (first 100 bytes): ${Buffer.from(data).toString('hex', 0, 100)}`);
+                isFirstChunk = false;
             }
 
-            if (ffmpegProcess.stdin.writable) {
-                ffmpegProcess.stdin.write(Buffer.from(data));
-            } else {
-                console.error('FFmpeg stdin is not writable');
-                socket.emit('streamError', 'Unable to process stream data.');
+            inputBuffer = Buffer.concat([inputBuffer, Buffer.from(data)]);
+
+            if (!isFFmpegRunning) {
+                startFFmpeg();
+            }
+
+            while (inputBuffer.length >= 4096) {
+                const chunk = inputBuffer.slice(0, 4096);
+                inputBuffer = inputBuffer.slice(4096);
+                writeToFFmpeg(chunk);
             }
         } catch (error) {
             console.error('Error processing stream data:', error);
@@ -109,9 +197,11 @@ io.on('connection', (socket) => {
             ffmpegProcess.kill('SIGINT');
             console.log('FFmpeg process terminated');
         }
+        isFFmpegRunning = false;
         console.log(`Stream ${streamKey} will expire in ${STREAM_EXPIRY_TIME / 1000} seconds`);
     });
 });
+
 
 app.get('/publickey/:streamId', (req, res) => {
     try {
