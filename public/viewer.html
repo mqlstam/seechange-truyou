@@ -6,8 +6,6 @@
     <title>SeeChange TruYou Viewer</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsencrypt/3.2.1/jsencrypt.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
 </head>
 <body class="bg-gray-100 h-screen flex items-center justify-center">
     <div class="bg-white p-8 rounded-lg shadow-md max-w-md w-full">
@@ -23,6 +21,7 @@
             </button>
         </div>
         <div id="verificationStatus" class="text-center text-sm"></div>
+        <div id="errorMessage" class="mt-2 text-center text-sm text-red-600 hidden"></div>
         <div id="logContainer" class="mt-4 p-2 bg-gray-100 rounded h-40 overflow-y-auto text-xs"></div>
     </div>
     
@@ -31,6 +30,7 @@
         const streamKeyInput = document.getElementById('streamKeyInput');
         const loadStreamButton = document.getElementById('loadStreamButton');
         const verificationStatus = document.getElementById('verificationStatus');
+        const errorMessage = document.getElementById('errorMessage');
         const logContainer = document.getElementById('logContainer');
         let publicKey;
         let hls;
@@ -45,11 +45,21 @@
             logContainer.scrollTop = logContainer.scrollHeight;
         }
 
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.classList.remove('hidden');
+        }
+
+        function hideError() {
+            errorMessage.textContent = '';
+            errorMessage.classList.add('hidden');
+        }
 
         async function loadStream() {
+            hideError();
             const streamKey = streamKeyInput.value;
             if (!streamKey) {
-                alert('Please enter a stream key');
+                showError('Please enter a stream key');
                 return;
             }
 
@@ -60,7 +70,7 @@
                 log('Public key fetched successfully');
             } catch (error) {
                 log(`Error fetching public key: ${error.message}`);
-                alert('Error fetching public key. Please check the stream key and try again.');
+                showError('Error fetching public key. Please check the stream key and try again.');
                 return;
             }
 
@@ -81,9 +91,11 @@
                                     verifySegment(hash, signature);
                                 } else {
                                     log('Missing hash or signature');
+                                    showError('Stream integrity check failed. Missing hash or signature.');
                                 }
                             } else {
                                 log(`Segment request failed with status: ${xhr.status}`);
+                                showError(`Failed to load stream segment. Status: ${xhr.status}`);
                             }
                         });
                     }
@@ -100,14 +112,17 @@
                         switch(data.type) {
                             case Hls.ErrorTypes.NETWORK_ERROR:
                                 log('Fatal network error encountered, trying to recover');
+                                showError('Network error. Trying to recover...');
                                 hls.startLoad();
                                 break;
                             case Hls.ErrorTypes.MEDIA_ERROR:
                                 log('Fatal media error encountered, trying to recover');
+                                showError('Media error. Trying to recover...');
                                 hls.recoverMediaError();
                                 break;
                             default:
                                 log('Fatal error, cannot recover');
+                                showError('Fatal error occurred. Please try reloading the stream.');
                                 hls.destroy();
                                 break;
                         }
@@ -123,6 +138,7 @@
                 });
             } else {
                 log('HLS is not supported on this browser');
+                showError('Your browser does not support HLS playback.');
             }
         }
 
