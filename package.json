@@ -1,0 +1,23 @@
+{
+  "name": "seechange-truyou",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "child_process": "^1.0.2",
+    "crypto": "^1.0.1",
+    "cryptojs": "^2.5.3",
+    "express": "^4.19.2",
+    "fs": "^0.0.1-security",
+    "hls-server": "^1.5.0",
+    "http": "^0.0.1-security",
+    "path": "^0.12.7",
+    "socket.io": "^4.7.5"
+  }
+}

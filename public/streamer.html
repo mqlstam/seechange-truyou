@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SeeChange TruYou Streamer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body class="bg-gray-100 h-screen flex items-center justify-center">
+    <div class="bg-white p-8 rounded-lg shadow-md max-w-md w-full">
+        <h1 class="text-2xl font-bold mb-4 text-center text-blue-600">SeeChange TruYou Streamer</h1>
+        <div class="mb-4">
+            <video id="localVideo" autoplay muted class="w-full h-64 bg-black rounded"></video>
+        </div>
+        <div class="flex justify-between">
+            <button id="startButton" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded">
+                Start Streaming
+            </button>
+            <button id="stopButton" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded" disabled>
+                Stop Streaming
+            </button>
+        </div>
+        <p id="streamKey" class="mt-4 text-center text-gray-600"></p>
+    </div>
+
+    <script>
+        const localVideo = document.getElementById('localVideo');
+        const startButton = document.getElementById('startButton');
+        const stopButton = document.getElementById('stopButton');
+        const streamKeyDisplay = document.getElementById('streamKey');
+        let mediaRecorder;
+        let socket;
+
+        startButton.onclick = startStreaming;
+        stopButton.onclick = stopStreaming;
+
+        async function startStreaming() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                localVideo.srcObject = stream;
+
+                socket = io();
+                
+                socket.on('streamKey', (key) => {
+                    streamKeyDisplay.textContent = `Your Stream Key: ${key}`;
+                });
+
+                mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm; codecs=vp9' });
+                
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        socket.emit('streamData', event.data);
+                    }
+                };
+
+                mediaRecorder.start(1000); // Send data every second
+
+                startButton.disabled = true;
+                stopButton.disabled = false;
+            } catch (error) {
+                console.error('Error accessing media devices:', error);
+                alert('Error accessing camera and microphone. Please ensure you have given permission.');
+            }
+        }
+
+        function stopStreaming() {
+            if (mediaRecorder) {
+                mediaRecorder.stop();
+            }
+            if (socket) {
+                socket.disconnect();
+            }
+            localVideo.srcObject.getTracks().forEach(track => track.stop());
+            startButton.disabled = false;
+            stopButton.disabled = true;
+            streamKeyDisplay.textContent = '';
+        }
+    </script>
+</body>
+</html>
