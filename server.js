@@ -66,50 +66,51 @@ io.on('connection', (socket) => {
     socket.emit('streamKey', streamKey);
     console.log(`Sent stream key to client: ${streamKey}`);
 
+
     function startFFmpeg() {
         console.log('Initializing FFmpeg process');
         const outputPath = path.join(__dirname, 'media', streamKey);
         if (!fs.existsSync(outputPath)) {
-            fs.mkdirSync(outputPath, { recursive: true });
-            console.log(`Created output directory: ${outputPath}`);
+          fs.mkdirSync(outputPath, { recursive: true });
+          console.log(`Created output directory: ${outputPath}`);
         }
-    
+      
         ffmpegProcess = spawn('ffmpeg', [
-            '-i', 'pipe:0',
-            '-c:v', 'libx264',
-            '-preset', 'superfast',
-            '-tune', 'zerolatency',
-            '-sc_threshold', '0',
-            '-g', '30',
-            '-keyint_min', '30',
-            '-c:a', 'aac',
-            '-ar', '44100',
-            '-b:a', '128k',
-            '-map', '0:v',
-            '-map', '0:a',
-            '-map', '0:v',
-            '-map', '0:a',
-            '-map', '0:v',
-            '-map', '0:a',
-            '-var_stream_map', 'v:0,a:0 v:1,a:1 v:2,a:2',
-            '-s:v:1', '1280x720',
-            '-b:v:1', '1500k',
-            '-maxrate:v:1', '1600k',
-            '-bufsize:v:1', '2250k',
-            '-s:v:2', '854x480',
-            '-b:v:2', '800k',
-            '-maxrate:v:2', '856k',
-            '-bufsize:v:2', '1200k',
-            '-f', 'hls',
-            '-hls_time', '1',
-            '-hls_list_size', '3',
-            '-hls_flags', 'delete_segments+omit_endlist+append_list+discont_start',
-            '-hls_segment_type', 'fmp4',
-            '-hls_fmp4_init_filename', 'init.mp4',
-            '-hls_segment_filename', path.join(outputPath, '%v/segment%d.m4s'),
-            '-master_pl_name', 'master.m3u8',
-            '-hls_init_time', '0',
-            path.join(outputPath, '%v/playlist.m3u8')
+          '-i', 'pipe:0',
+          '-c:v', 'libx264',
+          '-preset', 'superfast',
+          '-tune', 'zerolatency',
+          '-sc_threshold', '0',
+          '-g', '30',
+          '-keyint_min', '30',
+          '-c:a', 'aac',
+          '-ar', '44100',
+          '-b:a', '128k',
+          '-map', '0:v',
+          '-map', '0:a',
+          '-map', '0:v',
+          '-map', '0:a',
+          '-map', '0:v',
+          '-map', '0:a',
+          '-var_stream_map', 'v:0,a:0 v:1,a:1 v:2,a:2',
+          '-s:v:1', '1280x720',
+          '-b:v:1', '1500k',
+          '-maxrate:v:1', '1600k',
+          '-bufsize:v:1', '2250k',
+          '-s:v:2', '854x480',
+          '-b:v:2', '800k',
+          '-maxrate:v:2', '856k',
+          '-bufsize:v:2', '1200k',
+          '-f', 'hls',
+          '-hls_time', '1',
+          '-hls_list_size', '3',
+          '-hls_flags', 'delete_segments+omit_endlist+append_list+discont_start',
+          '-hls_segment_type', 'fmp4',
+          '-hls_fmp4_init_filename', path.join(outputPath, '%v', 'init.mp4'),
+          '-hls_segment_filename', path.join(outputPath, '%v', 'segment%d.m4s'),
+          '-master_pl_name', path.join(outputPath, 'master.m3u8'),
+          '-hls_init_time', '0',
+          path.join(outputPath, '%v', 'playlist.m3u8')
         ]);
         
         isFFmpegRunning = true;
