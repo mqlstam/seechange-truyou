@@ -32,29 +32,23 @@ function getStreamHealth(streamKey) {
 }
 
 app.get('/streamer', (req, res) => {
-  console.log('Streamer page requested');
   res.sendFile(path.join(__dirname, 'public', 'streamer.html'));
 });
 
 app.get('/viewer', (req, res) => {
-  console.log('Viewer page requested');
   res.sendFile(path.join(__dirname, 'public', 'viewer.html'));
 });
 
 function generateStreamKey() {
-  const key = crypto.randomBytes(8).toString('hex');
-  console.log(`Generated new stream key: ${key}`);
-  return key;
+  return crypto.randomBytes(8).toString('hex');
 }
 
 io.on('connection', (socket) => {
-  console.log(`New client connected: ${socket.id}`);
   let ffmpegProcess;
   let streamKey = generateStreamKey();
   let { publicKey, privateKey } = generateKeyPair();
   let isFFmpegRunning = false;
   let inputBuffer = Buffer.alloc(0);
-  let lastDataReceived = Date.now();
 
   streamKeys.set(streamKey, {
     publicKey,
@@ -63,25 +57,23 @@ io.on('connection', (socket) => {
   });
 
   socket.emit('streamKey', streamKey);
-  console.log(`Sent stream key to client: ${streamKey}`);
 
   function startFFmpeg() {
-    console.log('Initializing FFmpeg process');
     const outputPath = path.join(__dirname, 'media', streamKey);
-    
+
     if (!fs.existsSync(outputPath)) {
       fs.mkdirSync(outputPath, { recursive: true });
-      console.log(`Created output directory: ${outputPath}`);
     }
 
     ffmpegProcess = spawn('ffmpeg', [
       '-i', 'pipe:0',
       '-c:v', 'libx264',
-      '-preset', 'ultrafast',
+      '-preset', 'superfast',
       '-tune', 'zerolatency',
+      '-crf', '28',
       '-sc_threshold', '0',
-      '-g', '30',
-      '-keyint_min', '30',
+      '-g', '60',
+      '-keyint_min', '60',
       '-c:a', 'aac',
       '-ar', '44100',
       '-b:a', '128k',
@@ -93,12 +85,12 @@ io.on('connection', (socket) => {
       '-map', '0:a',
       '-var_stream_map', 'v:0,a:0 v:1,a:1 v:2,a:2',
       '-s:v:1', '1280x720',
-      '-b:v:1', '1500k',
-      '-maxrate:v:1', '1600k',
-      '-bufsize:v:1', '2250k',
+      '-b:v:1', '1000k',
+      '-maxrate:v:1', '1200k',
+      '-bufsize:v:1', '2000k',
       '-s:v:2', '854x480',
-      '-b:v:2', '800k',
-      '-maxrate:v:2', '856k',
+      '-b:v:2', '600k',
+      '-maxrate:v:2', '800k',
       '-bufsize:v:2', '1200k',
       '-f', 'hls',
       '-hls_time', '2',
@@ -115,18 +107,15 @@ io.on('connection', (socket) => {
     isFFmpegRunning = true;
 
     ffmpegProcess.stderr.on('data', (data) => {
-      console.log(`FFmpeg: ${data}`);
+      // Log FFmpeg output if needed
     });
 
     ffmpegProcess.on('error', (err) => {
-      console.error('FFmpeg process error:', err);
       isFFmpegRunning = false;
       socket.emit('streamError', 'An error occurred while processing the stream.');
-      // Implement error recovery logic here
     });
 
     ffmpegProcess.on('exit', (code, signal) => {
-      console.log(`FFmpeg process exited with code ${code} and signal ${signal}`);
       isFFmpegRunning = false;
       if (code !== 0) {
         socket.emit('streamError', 'The streaming process ended unexpectedly.');
@@ -135,14 +124,9 @@ io.on('connection', (socket) => {
 
     ffmpegProcess.stdin.on('error', (err) => {
       if (err.code === 'EPIPE') {
-        console.log('FFmpeg stdin closed');
         isFFmpegRunning = false;
-      } else {
-        console.error('FFmpeg stdin error:', err);
       }
     });
-
-    console.log('FFmpeg process started');
   }
 
   function writeToFFmpeg(data) {
@@ -155,49 +139,37 @@ io.on('connection', (socket) => {
           });
         }
       } catch (err) {
-        console.error('Error writing to FFmpeg stdin:', err);
         if (err.code === 'EPIPE') {
           isFFmpegRunning = false;
         }
       }
     } else {
-      console.error('FFmpeg process is not ready to receive data');
       socket.emit('streamError', 'Unable to process stream data.');
     }
   }
 
   socket.on('streamData', (data) => {
-    try {
-      console.log(`Received stream data chunk of size: ${data.byteLength} bytes`);
-      inputBuffer = Buffer.concat([inputBuffer, Buffer.from(data)]);
-      
-      if (!isFFmpegRunning) {
-        startFFmpeg();
-      }
-
-      while (inputBuffer.length >= CHUNK_SIZE) {
-        const chunk = inputBuffer.slice(0, CHUNK_SIZE);
-        inputBuffer = inputBuffer.slice(CHUNK_SIZE);
-        writeToFFmpeg(chunk);
-      }
-
-      lastDataReceived = Date.now();
-      updateStreamHealth(streamKey, 'active');
-    } catch (error) {
-      console.error('Error processing stream data:', error);
-      socket.emit('streamError', 'An unexpected error occurred while processing the stream.');
+    inputBuffer = Buffer.concat([inputBuffer, Buffer.from(data)]);
+    
+    if (!isFFmpegRunning) {
+      startFFmpeg();
     }
+
+    while (inputBuffer.length >= CHUNK_SIZE) {
+      const chunk = inputBuffer.slice(0, CHUNK_SIZE);
+      inputBuffer = inputBuffer.slice(CHUNK_SIZE);
+      writeToFFmpeg(chunk);
+    }
+
+    updateStreamHealth(streamKey, 'active');
   });
 
   socket.on('disconnect', () => {
-    console.log(`Client disconnected: ${socket.id}`);
     if (ffmpegProcess) {
       ffmpegProcess.stdin.end();
       ffmpegProcess.kill('SIGINT');
-      console.log('FFmpeg process terminated');
     }
     isFFmpegRunning = false;
-    console.log(`Stream ${streamKey} will expire in ${STREAM_EXPIRY_TIME / 1000} seconds`);
     updateStreamHealth(streamKey, 'ended');
   });
 });
@@ -205,10 +177,8 @@ io.on('connection', (socket) => {
 app.get('/publickey/:streamId', (req, res) => {
   try {
     const streamId = req.params.streamId;
-    console.log(`Public key requested for stream: ${streamId}`);
     const streamData = streamKeys.get(streamId);
     if (streamData && streamData.expiresAt > Date.now()) {
-      console.log('Public key found and sent');
       const publicKeyPem = streamData.publicKey;
       const publicKeyBase64 = publicKeyPem
         .replace(/-----BEGIN PUBLIC KEY-----/, '')
@@ -216,11 +186,9 @@ app.get('/publickey/:streamId', (req, res) => {
         .replace(/\n/g, '');
       res.send(publicKeyBase64);
     } else {
-      console.log('Stream not found or expired');
       res.status(404).send('Stream not found or expired');
     }
   } catch (error) {
-    console.error('Error in /publickey route:', error);
     res.status(500).send('Internal Server Error');
   }
 });
@@ -228,24 +196,19 @@ app.get('/publickey/:streamId', (req, res) => {
 app.use('/streams/:streamId', (req, res, next) => {
   const streamId = req.params.streamId;
   const filePath = path.join(__dirname, 'media', streamId, req.path);
-  console.log(`Stream file requested: ${filePath}`);
-  
+
   const streamData = streamKeys.get(streamId);
   if (!streamData || streamData.expiresAt <= Date.now()) {
-    console.log(`Stream ${streamId} not found or expired`);
     return res.status(410).send('Stream has ended or expired');
   }
 
   fs.readFile(filePath, (err, data) => {
     if (err) {
-      console.error(`Error reading file: ${filePath}`, err);
       return res.status(404).send('File not found');
     }
 
     const hash = hashSegment(data);
-    console.log(`File hash: ${hash}`);
     const signature = signHash(hash, streamData.privateKey);
-    console.log(`File signed. Signature (first 20 chars): ${signature.substr(0, 20)}...`);
 
     res.setHeader('X-Segment-Hash', hash);
     res.setHeader('X-Segment-Signature', signature);
@@ -257,7 +220,6 @@ app.use('/streams/:streamId', (req, res, next) => {
     }
 
     res.send(data);
-    console.log(`Sent file: ${filePath}`);
   });
 });
 
