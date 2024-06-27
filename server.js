@@ -73,13 +73,13 @@ io.on("connection", (socket) => {
     }
 
     // Create subdirectories for each quality level
-    for (let i = 0; i < 3; i++) {
-      const qualityPath = path.join(outputPath, i.toString());
-      if (!fs.existsSync(qualityPath)) {
-        fs.mkdirSync(qualityPath, { recursive: true });
-        console.log(`Created quality directory: ${qualityPath}`);
-      }
+for (let i = 0; i < 3; i++) {
+    const qualityPath = path.join(outputPath, i.toString());
+    if (!fs.existsSync(qualityPath)) {
+      fs.mkdirSync(qualityPath, { recursive: true });
+      console.log(`Created quality directory: ${qualityPath}`);
     }
+  }
 
     ffmpegProcess = spawn("ffmpeg", [
       "-i",
@@ -142,11 +142,9 @@ io.on("connection", (socket) => {
       "delete_segments+omit_endlist+append_list+discont_start",
       "-hls_segment_type",
       "fmp4",
-      "-hls_fmp4_init_filename",
-      "init.mp4",
-      "-hls_segment_filename",
-      path.join(outputPath, "%v", "segment%d.m4s"),
-      "-master_pl_name",
+"-hls_fmp4_init_filename", "%v/init_%v.mp4",
+"-hls_segment_filename", path.join(outputPath, "%v", "segment%d.m4s"),
+              "-master_pl_name",
       "master.m3u8",
       "-hls_init_time",
       "0",
@@ -327,6 +325,6 @@ app.use("/streams/:streamId", (req, res, next) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT}`);
 });
