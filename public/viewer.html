@@ -20,10 +20,10 @@
                 Load Stream
             </button>
         </div>
-        <div id="verificationStatus" class="text-center text-sm"></div>
+        <div id="streamStatus" class="text-center text-sm font-bold mb-2"></div>
         <div id="errorMessage" class="mt-2 text-center text-sm text-red-600 hidden"></div>
-        <div id="logContainer" class="mt-4 p-2 bg-gray-100 rounded h-40 overflow-y-auto text-xs"></div>
     </div>
+    
     <script>
         const video = document.getElementById('video');
         const streamKeyInput = document.getElementById('streamKeyInput');
@@ -36,17 +36,27 @@
         loadStreamButton.onclick = loadStream;
 
         function showError(message) {
-            errorMessage.textContent = message;
-            errorMessage.classList.remove('hidden');
+            if (errorMessage) {
+                errorMessage.textContent = message;
+                errorMessage.classList.remove('hidden');
+            } else {
+                console.error('Error message element not found:', message);
+            }
         }
 
         function hideError() {
-            errorMessage.textContent = '';
-            errorMessage.classList.add('hidden');
+            if (errorMessage) {
+                errorMessage.textContent = '';
+                errorMessage.classList.add('hidden');
+            }
         }
 
         function updateStreamStatus(status) {
-            streamStatus.textContent = `Stream Status: ${status}`;
+            if (streamStatus) {
+                streamStatus.textContent = `Stream Status: ${status}`;
+            } else {
+                console.error('Stream status element not found:', status);
+            }
         }
 
         async function fetchPublicKey(streamKey) {
@@ -143,7 +153,6 @@
             }
         }
 
-        // Add this function for segment verification
         async function verifySegment(hash, signature) {
             try {
                 const signatureArrayBuffer = Uint8Array.from(atob(signature), c => c.charCodeAt(0)).buffer;
@@ -168,6 +177,13 @@
                 console.error('Error verifying segment:', error);
             }
         }
+
+        // Check if all required elements are present
+        document.addEventListener('DOMContentLoaded', () => {
+            if (!video || !streamKeyInput || !loadStreamButton || !streamStatus || !errorMessage) {
+                console.error('One or more required elements are missing from the DOM');
+            }
+        });
     </script>
 </body>
 </html>
