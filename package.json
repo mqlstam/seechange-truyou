@@ -15,7 +15,9 @@
     "cryptojs": "^2.5.3",
     "express": "^4.19.2",
     "fs": "^0.0.1-security",
+    "hls": "^0.0.1",
     "hls-server": "^1.5.0",
+    "hls.js": "^1.5.11",
     "http": "^0.0.1-security",
     "path": "^0.12.7",
     "socket.io": "^4.7.5"
