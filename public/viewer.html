@@ -20,74 +20,42 @@
                 Load Stream
             </button>
         </div>
-        <div id="streamStatus" class="text-center text-sm font-bold mb-2"></div>
+        <div id="verificationStatus" class="text-center text-sm"></div>
         <div id="errorMessage" class="mt-2 text-center text-sm text-red-600 hidden"></div>
+        <div id="logContainer" class="mt-4 p-2 bg-gray-100 rounded h-40 overflow-y-auto text-xs"></div>
     </div>
     
     <script>
         const video = document.getElementById('video');
         const streamKeyInput = document.getElementById('streamKeyInput');
         const loadStreamButton = document.getElementById('loadStreamButton');
-        const streamStatus = document.getElementById('streamStatus');
+        const verificationStatus = document.getElementById('verificationStatus');
         const errorMessage = document.getElementById('errorMessage');
-        let hls;
+        const logContainer = document.getElementById('logContainer');
         let publicKey;
-
+        let hls;
+        
         loadStreamButton.onclick = loadStream;
 
+        function log(message) {
+            console.log(message);
+            const logEntry = document.createElement('div');
+            logEntry.textContent = `${new Date().toISOString().substr(11, 8)} - ${message}`;
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
         function showError(message) {
-            if (errorMessage) {
-                errorMessage.textContent = message;
-                errorMessage.classList.remove('hidden');
-            } else {
-                console.error('Error message element not found:', message);
-            }
+            errorMessage.textContent = message;
+            errorMessage.classList.remove('hidden');
         }
 
         function hideError() {
-            if (errorMessage) {
-                errorMessage.textContent = '';
-                errorMessage.classList.add('hidden');
-            }
+            errorMessage.textContent = '';
+            errorMessage.classList.add('hidden');
         }
 
-        function updateStreamStatus(status) {
-            if (streamStatus) {
-                streamStatus.textContent = `Stream Status: ${status}`;
-            } else {
-                console.error('Stream status element not found:', status);
-            }
-        }
-
-        async function fetchPublicKey(streamKey) {
-            const response = await fetch(`/publickey/${streamKey}`);
-            if (!response.ok) {
-                throw new Error(`Failed to fetch public key: ${response.status} ${response.statusText}`);
-            }
-            const publicKeyBase64 = await response.text();
-            console.log(`Public key (base64): ${publicKeyBase64.slice(0, 50)}...`);
-            
-            // Convert base64 to ArrayBuffer
-            const binaryString = window.atob(publicKeyBase64);
-            const bytes = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) {
-                bytes[i] = binaryString.charCodeAt(i);
-            }
-            
-            // Import the public key
-            return await window.crypto.subtle.importKey(
-                "spki",
-                bytes.buffer,
-                {
-                    name: "RSASSA-PKCS1-v1_5",
-                    hash: "SHA-256",
-                },
-                true,
-                ["verify"]
-            );
-        }
-
-        async function loadStream() {
+ async function loadStream() {
             hideError();
             const streamKey = streamKeyInput.value;
             if (!streamKey) {
@@ -95,95 +63,168 @@
                 return;
             }
 
-            updateStreamStatus('Loading...');
+            log(`Loading stream with key: ${streamKey}`);
 
             try {
                 publicKey = await fetchPublicKey(streamKey);
-                console.log('Public key imported successfully');
+                log('Public key fetched successfully');
             } catch (error) {
-                console.error('Error fetching public key:', error);
-                showError(`Error fetching public key: ${error.message}`);
+                log(`Error fetching public key: ${error.message}`);
+                showError('Error fetching public key. Please check the stream key and try again.');
                 return;
             }
 
             if (Hls.isSupported()) {
+                log('HLS.js is supported');
                 if (hls) {
                     hls.destroy();
                 }
                 hls = new Hls({
-                    debug: true,
-                    enableWorker: true,
+                    debug: false,
                     lowLatencyMode: true,
-                    backBufferLength: 90
+                    liveSyncDurationCount: 1,
+                    liveMaxLatencyDurationCount: 6,
+                    liveDurationInfinity: true,
+                    highBufferWatchdogPeriod: 1,
+                    manifestLoadingTimeOut: 10000,
+                    manifestLoadingMaxRetry: 2,
+                    levelLoadingTimeOut: 10000,
+                    levelLoadingMaxRetry: 2,
+                    fragLoadingTimeOut: 10000,
+                    fragLoadingMaxRetry: 2,
+                    startFragPrefetch: true,
+                    maxBufferLength: 1,
+                    maxMaxBufferLength: 1,
+                    xhrSetup: function(xhr, url) {
+                        xhr.addEventListener('load', function() {
+                            if (xhr.status === 200) {
+                                const hash = xhr.getResponseHeader('X-Segment-Hash');
+                                const signature = xhr.getResponseHeader('X-Segment-Signature');
+                                if (hash && signature) {
+                                    verifySegment(hash, signature);
+                                }
+                            }
+                        });
+                    }
                 });
-
-                hls.loadSource(`/streams/${streamKey}/playlist.m3u8`);
+                hls.loadSource(`/streams/${streamKey}/master.m3u8`);
                 hls.attachMedia(video);
                 hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                    updateStreamStatus('Manifest parsed, attempting to play');
-                    video.play().catch(e => showError(`Playback failed: ${e.message}`));
+                    log('Manifest parsed, attempting to play');
+                    video.play();
                 });
-
-                hls.on(Hls.Events.ERROR, function(event, data) {
+                hls.on(Hls.Events.ERROR, function (event, data) {
+                    log(`HLS error: ${data.type}`);
                     if (data.fatal) {
-                        switch (data.type) {
+                        switch(data.type) {
                             case Hls.ErrorTypes.NETWORK_ERROR:
-                                updateStreamStatus('Network error, trying to recover...');
+                                log('Fatal network error encountered, trying to recover');
                                 hls.startLoad();
                                 break;
                             case Hls.ErrorTypes.MEDIA_ERROR:
-                                updateStreamStatus('Media error, trying to recover...');
+                                log('Fatal media error encountered, trying to recover');
                                 hls.recoverMediaError();
                                 break;
                             default:
-                                showError('Fatal error occurred. Please try reloading the stream.');
+                                log('Fatal error, cannot recover');
                                 hls.destroy();
                                 break;
                         }
                     }
                 });
             } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                video.src = `/streams/${streamKey}/playlist.m3u8`;
+                log('Native HLS playback supported');
+                video.src = `/streams/${streamKey}/master.m3u8`;
                 video.addEventListener('loadedmetadata', () => {
-                    updateStreamStatus('Metadata loaded, attempting to play');
-                    video.play().catch(e => showError(`Playback failed: ${e.message}`));
+                    log('Metadata loaded, attempting to play');
+                    video.play();
                 });
             } else {
+                log('HLS is not supported on this browser');
                 showError('Your browser does not support HLS playback.');
             }
         }
 
+
+        async function fetchPublicKey(streamKey) {
+            log(`Fetching public key for stream: ${streamKey}`);
+            const response = await fetch(`/publickey/${streamKey}`);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch public key: ${response.status} ${response.statusText}`);
+            }
+            const publicKeyBase64 = await response.text();
+            log(`Public key (base64): ${publicKeyBase64.slice(0, 50)}...`);
+            
+            // Convert base64 to ArrayBuffer
+            const binaryDer = atob(publicKeyBase64);
+            const binaryDerBuffer = new ArrayBuffer(binaryDer.length);
+            const binaryDerArray = new Uint8Array(binaryDerBuffer);
+            for (let i = 0; i < binaryDer.length; i++) {
+                binaryDerArray[i] = binaryDer.charCodeAt(i);
+            }
+            
+            // Import the public key
+            const importedKey = await window.crypto.subtle.importKey(
+                "spki",
+                binaryDerBuffer,
+                {
+                    name: "RSASSA-PKCS1-v1_5",
+                    hash: "SHA-256",
+                },
+                true,
+                ["verify"]
+            );
+            log('Public key imported successfully');
+            return importedKey;
+        }
+
+
         async function verifySegment(hash, signature) {
+            log('Verifying segment');
+            log(`Hash: ${hash}`);
+            log(`Signature: ${signature.slice(0, 50)}...`);
+            
             try {
-                const signatureArrayBuffer = Uint8Array.from(atob(signature), c => c.charCodeAt(0)).buffer;
-                const hashArrayBuffer = new TextEncoder().encode(hash);
-                
-                const isValid = await window.crypto.subtle.verify(
+                const verified = await window.crypto.subtle.verify(
                     {
                         name: "RSASSA-PKCS1-v1_5",
                         hash: {name: "SHA-256"},
                     },
                     publicKey,
-                    signatureArrayBuffer,
-                    hashArrayBuffer
+                    base64ToArrayBuffer(signature),
+                    hexToArrayBuffer(hash)
                 );
-
-                if (isValid) {
-                    console.log('Segment verified successfully');
+                
+                if (verified) {
+                    log('Segment verified successfully');
+                    verificationStatus.textContent = "Stream verified";
+                    verificationStatus.className = "text-center text-sm text-green-600";
                 } else {
-                    console.warn('Segment verification failed');
+                    log('Segment verification failed');
+                    verificationStatus.textContent = "Stream verification failed";
+                    verificationStatus.className = "text-center text-sm text-red-600";
                 }
             } catch (error) {
-                console.error('Error verifying segment:', error);
+                log(`Verification error: ${error.message}`);
+                verificationStatus.textContent = "Stream verification error";
+                verificationStatus.className = "text-center text-sm text-red-600";
             }
         }
 
-        // Check if all required elements are present
-        document.addEventListener('DOMContentLoaded', () => {
-            if (!video || !streamKeyInput || !loadStreamButton || !streamStatus || !errorMessage) {
-                console.error('One or more required elements are missing from the DOM');
+        function hexToArrayBuffer(hexString) {
+            return new Uint8Array(hexString.match(/.{1,2}/g).map(byte => parseInt(byte, 16))).buffer;
+        }
+
+        function base64ToArrayBuffer(base64) {
+            var binary_string = window.atob(base64);
+            var len = binary_string.length;
+            var bytes = new Uint8Array(len);
+            for (var i = 0; i < len; i++) {
+                bytes[i] = binary_string.charCodeAt(i);
             }
-        });
+            return bytes.buffer;
+        }
+
     </script>
 </body>
 </html>
