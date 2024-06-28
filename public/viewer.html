@@ -1,253 +1,260 @@
 <!DOCTYPE html>
 <html lang="en">
-
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SeeChange TruYou Viewer</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-</head>
-
-<body class="bg-gray-100 h-screen flex items-center justify-center">
-  <div class="bg-white p-8 rounded-lg shadow-md max-w-md w-full">
-    <h1 class="text-2xl font-bold mb-4 text-center text-blue-600">
-      SeeChange TruYou Viewer
-    </h1>
-    <div class="mb-4">
-      <video id="video" controls class="w-full h-64 bg-black rounded"></video>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SeeChange TruYou Viewer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  </head>
+  <body class="bg-gray-100 h-screen flex items-center justify-center">
+    <div class="bg-white p-8 rounded-lg shadow-md max-w-md w-full">
+      <h1 class="text-2xl font-bold mb-4 text-center text-blue-600">
+        SeeChange TruYou Viewer
+      </h1>
+      <div class="mb-4">
+        <video id="video" controls class="w-full h-64 bg-black rounded"></video>
+      </div>
+      <div class="flex items-center mb-4">
+        <input
+          type="text"
+          id="streamKeyInput"
+          placeholder="Enter stream key"
+          class="flex-grow mr-2 px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        <button
+          id="loadStreamButton"
+          class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded"
+        >
+          Load Stream
+        </button>
+      </div>
+      <div id="verificationStatus" class="text-center text-sm"></div>
+      <div
+        id="errorMessage"
+        class="mt-2 text-center text-sm text-red-600 hidden"
+      ></div>
+      <div
+        id="logContainer"
+        class="mt-4 p-2 bg-gray-100 rounded h-40 overflow-y-auto text-xs"
+      ></div>
     </div>
-    <div class="flex items-center mb-4">
-      <input type="text" id="streamKeyInput" placeholder="Enter stream key"
-        class="flex-grow mr-2 px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" />
-      <button id="loadStreamButton" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded">
-        Load Stream
-      </button>
-    </div>
-    <div id="verificationStatus" class="text-center text-sm"></div>
-    <div id="errorMessage" class="mt-2 text-center text-sm text-red-600 hidden"></div>
-    <div id="logContainer" class="mt-4 p-2 bg-gray-100 rounded h-40 overflow-y-auto text-xs"></div>
-  </div>
 
-  <script>
-    const video = document.getElementById('video');
-    const streamKeyInput = document.getElementById('streamKeyInput');
-    const loadStreamButton = document.getElementById('loadStreamButton');
-    const verificationStatus = document.getElementById('verificationStatus');
-    const errorMessage = document.getElementById('errorMessage');
-    const logContainer = document.getElementById('logContainer');
-    let publicKey;
-    let hls;
+    <script>
+      const video = document.getElementById('video');
+      const streamKeyInput = document.getElementById('streamKeyInput');
+      const loadStreamButton = document.getElementById('loadStreamButton');
+      const verificationStatus = document.getElementById('verificationStatus');
+      const errorMessage = document.getElementById('errorMessage');
+      const logContainer = document.getElementById('logContainer');
+      let publicKey;
+      let hls;
 
-    loadStreamButton.onclick = loadStream;
+      loadStreamButton.onclick = loadStream;
 
-    function log(message) {
-      const logEntry = document.createElement('div');
-      logEntry.textContent = `${new Date().toISOString().substr(11, 8)} - ${message}`;
-      logContainer.appendChild(logEntry);
-      logContainer.scrollTop = logContainer.scrollHeight;
-    }
-
-    function showError(message) {
-      errorMessage.textContent = message;
-      errorMessage.classList.remove('hidden');
-    }
-
-    function hideError() {
-      errorMessage.textContent = '';
-      errorMessage.classList.add('hidden');
-    }
-
-    async function loadStream() {
-      hideError();
-      const streamKey = streamKeyInput.value;
-      if (!streamKey) {
-        showError('Please enter a stream key');
-        return;
+      function log(message) {
+        const logEntry = document.createElement('div');
+        logEntry.textContent = `${new Date().toISOString().substr(11, 8)} - ${message}`;
+        logContainer.appendChild(logEntry);
+        logContainer.scrollTop = logContainer.scrollHeight;
       }
 
-      log(`Loading stream with key: ${streamKey}`);
-
-      try {
-        publicKey = await fetchPublicKey(streamKey);
-        log('Public key fetched successfully');
-      } catch (error) {
-        log(`Error fetching public key: ${error.message}`);
-        showError('Error fetching public key. Please check the stream key and try again.');
-        return;
+      function showError(message) {
+        errorMessage.textContent = message;
+        errorMessage.classList.remove('hidden');
       }
 
-      if (Hls.isSupported()) {
-        log('HLS.js is supported');
-        if (hls) {
-          hls.destroy();
+      function hideError() {
+        errorMessage.textContent = '';
+        errorMessage.classList.add('hidden');
+      }
+
+      async function loadStream() {
+        hideError();
+        const streamKey = streamKeyInput.value;
+        if (!streamKey) {
+          showError('Please enter a stream key');
+          return;
         }
-        hls = new Hls({
-          debug: false,
-          lowLatencyMode: true,
-          liveSyncDurationCount: 1,
-          liveMaxLatencyDurationCount: 3, // Reduce max latency duration
-          liveDurationInfinity: true,
-          highBufferWatchdogPeriod: 0.5, // Increase watchdog frequency
-          manifestLoadingTimeOut: 10000,
-          manifestLoadingMaxRetry: 1, // Reduce max retries to speed up recovery
-          levelLoadingTimeOut: 10000,
-          levelLoadingMaxRetry: 1,
-          fragLoadingTimeOut: 10000,
-          fragLoadingMaxRetry: 1,
-          startFragPrefetch: true,
-          maxBufferLength: 1,
-          maxMaxBufferLength: 1,
-          xhrSetup: function (xhr, url) {
-            xhr.addEventListener('load', function () {
-              if (xhr.status === 200) {
-                const hash = xhr.getResponseHeader('X-Segment-Hash');
-                const signature = xhr.getResponseHeader('X-Segment-Signature');
-                if (hash && signature) {
-                  verifySegment(hash, signature);
+
+        log(`Loading stream with key: ${streamKey}`);
+
+        try {
+          publicKey = await fetchPublicKey(streamKey);
+          log('Public key fetched successfully');
+        } catch (error) {
+          log(`Error fetching public key: ${error.message}`);
+          showError('Error fetching public key. Please check the stream key and try again.');
+          return;
+        }
+
+        if (Hls.isSupported()) {
+          log('HLS.js is supported');
+          if (hls) {
+            hls.destroy();
+          }
+          hls = new Hls({
+            debug: false,
+            lowLatencyMode: true,
+            liveSyncDurationCount: 1,
+            liveMaxLatencyDurationCount: 3, // Reduce max latency duration
+            liveDurationInfinity: true,
+            highBufferWatchdogPeriod: 0.5, // Increase watchdog frequency
+            manifestLoadingTimeOut: 10000,
+            manifestLoadingMaxRetry: 1, // Reduce max retries to speed up recovery
+            levelLoadingTimeOut: 10000,
+            levelLoadingMaxRetry: 1,
+            fragLoadingTimeOut: 10000,
+            fragLoadingMaxRetry: 1,
+            startFragPrefetch: true,
+            maxBufferLength: 1,
+            maxMaxBufferLength: 1,
+            xhrSetup: function(xhr, url) {
+              xhr.addEventListener('load', function() {
+                if (xhr.status === 200) {
+                  const hash = xhr.getResponseHeader('X-Segment-Hash');
+                  const signature = xhr.getResponseHeader('X-Segment-Signature');
+                  if (hash && signature) {
+                    verifySegment(hash, signature);
+                  }
                 }
-              }
-            });
-          }
-        });
-        hls.loadSource(`/media/${streamKey}/master.m3u8`);
-        log(`/streams/${streamKey}/master.m3u8`);
-        hls.attachMedia(video);
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          log('Manifest parsed, attempting to play');
-          video.play();
-        });
-        hls.on(Hls.Events.LEVEL_SWITCHING, (event, data) => {
-          const level = data.level;
-          log(`Switching to level ${level}`);
-          switch (level) {
-            case 0:
-              hls.config.maxBufferLength = 1;
-              hls.config.maxMaxBufferLength = 1;
-              break;
-            case 1:
-              hls.config.maxBufferLength = 2;
-              hls.config.maxMaxBufferLength = 2;
-              break;
-            case 2:
-              hls.config.maxBufferLength = 3;
-              hls.config.maxMaxBufferLength = 3;
-              break;
-          }
-        });
-
-        log("")
-
-        hls.on(Hls.Events.ERROR, function (event, data) {
-          log(`HLS error: ${data.type}`);
-          if (data.fatal) {
-            switch (data.type) {
-              case Hls.ErrorTypes.NETWORK_ERROR:
-                log('Fatal network error encountered, trying to recover');
-                hls.startLoad();
+              });
+            }
+          });
+          hls.loadSource(`/streams/${streamKey}/master.m3u8`);
+          hls.attachMedia(video);
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            log('Manifest parsed, attempting to play');
+            video.play();
+          });
+          hls.on(Hls.Events.LEVEL_SWITCHING, (event, data) => {
+            const level = data.level;
+            log(`Switching to level ${level}`);
+            switch (level) {
+              case 0:
+                hls.config.maxBufferLength = 1;
+                hls.config.maxMaxBufferLength = 1;
                 break;
-              case Hls.ErrorTypes.MEDIA_ERROR:
-                log('Fatal media error encountered, trying to recover');
-                hls.recoverMediaError();
+              case 1:
+                hls.config.maxBufferLength = 2;
+                hls.config.maxMaxBufferLength = 2;
                 break;
-              default:
-                log('Fatal error, cannot recover');
-                hls.destroy();
+              case 2:
+                hls.config.maxBufferLength = 3;
+                hls.config.maxMaxBufferLength = 3;
                 break;
             }
-          }
-        });
-      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        log('Native HLS playback supported');
-        video.src = `/streams/${streamKey}/master.m3u8`;
-        video.addEventListener('loadedmetadata', () => {
-          log('Metadata loaded, attempting to play');
-          video.play();
-        });
-      } else {
-        log('HLS is not supported on this browser');
-        showError('Your browser does not support HLS playback.');
+          });
+
+          hls.on(Hls.Events.ERROR, function (event, data) {
+            log(`HLS error: ${data.type}`);
+            if (data.fatal) {
+              switch(data.type) {
+                case Hls.ErrorTypes.NETWORK_ERROR:
+                  log('Fatal network error encountered, trying to recover');
+                  hls.startLoad();
+                  break;
+                case Hls.ErrorTypes.MEDIA_ERROR:
+                  log('Fatal media error encountered, trying to recover');
+                  hls.recoverMediaError();
+                  break;
+                default:
+                  log('Fatal error, cannot recover');
+                  hls.destroy();
+                  break;
+              }
+            }
+          });
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+          log('Native HLS playback supported');
+          video.src = `/streams/${streamKey}/master.m3u8`;
+          video.addEventListener('loadedmetadata', () => {
+            log('Metadata loaded, attempting to play');
+            video.play();
+          });
+        } else {
+          log('HLS is not supported on this browser');
+          showError('Your browser does not support HLS playback.');
+        }
       }
-    }
 
-    async function fetchPublicKey(streamKey) {
-      log(`Fetching public key for stream: ${streamKey}`);
-      const response = await fetch(`/publickey/${streamKey}`);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch public key: ${response.status} ${response.statusText}`);
-      }
-      const publicKeyBase64 = await response.text();
-      log(`Public key (base64): ${publicKeyBase64.slice(0, 50)}...`);
+      async function fetchPublicKey(streamKey) {
+        log(`Fetching public key for stream: ${streamKey}`);
+        const response = await fetch(`/publickey/${streamKey}`);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch public key: ${response.status} ${response.statusText}`);
+        }
+        const publicKeyBase64 = await response.text();
+        log(`Public key (base64): ${publicKeyBase64.slice(0, 50)}...`);
 
-      // Convert base64 to ArrayBuffer
-      const binaryDer = atob(publicKeyBase64);
-      const binaryDerBuffer = new ArrayBuffer(binaryDer.length);
-      const binaryDerArray = new Uint8Array(binaryDerBuffer);
-      for (let i = 0; i < binaryDer.length; i++) {
-        binaryDerArray[i] = binaryDer.charCodeAt(i);
-      }
+        // Convert base64 to ArrayBuffer
+        const binaryDer = atob(publicKeyBase64);
+        const binaryDerBuffer = new ArrayBuffer(binaryDer.length);
+        const binaryDerArray = new Uint8Array(binaryDerBuffer);
+        for (let i = 0; i < binaryDer.length; i++) {
+          binaryDerArray[i] = binaryDer.charCodeAt(i);
+        }
 
-      // Import the public key
-      const importedKey = await window.crypto.subtle.importKey(
-        "spki",
-        binaryDerBuffer,
-        {
-          name: "RSASSA-PKCS1-v1_5",
-          hash: "SHA-256",
-        },
-        true,
-        ["verify"]
-      );
-      log('Public key imported successfully');
-      return importedKey;
-    }
-
-    async function verifySegment(hash, signature) {
-      log('Verifying segment');
-      log(`Hash: ${hash}`);
-      log(`Signature: ${signature.slice(0, 50)}...`);
-
-      try {
-        const verified = await window.crypto.subtle.verify(
+        // Import the public key
+        const importedKey = await window.crypto.subtle.importKey(
+          "spki",
+          binaryDerBuffer,
           {
             name: "RSASSA-PKCS1-v1_5",
-            hash: { name: "SHA-256" },
+            hash: "SHA-256",
           },
-          publicKey,
-          base64ToArrayBuffer(signature),
-          hexToArrayBuffer(hash)
+          true,
+          ["verify"]
         );
+        log('Public key imported successfully');
+        return importedKey;
+      }
 
-        if (verified) {
-          log('Segment verified successfully');
-          verificationStatus.textContent = "Stream verified";
-          verificationStatus.className = "text-center text-sm text-green-600";
-        } else {
-          log('Segment verification failed');
-          verificationStatus.textContent = "Stream verification failed";
+      async function verifySegment(hash, signature) {
+        log('Verifying segment');
+        log(`Hash: ${hash}`);
+        log(`Signature: ${signature.slice(0, 50)}...`);
+
+        try {
+          const verified = await window.crypto.subtle.verify(
+            {
+              name: "RSASSA-PKCS1-v1_5",
+              hash: {name: "SHA-256"},
+            },
+            publicKey,
+            base64ToArrayBuffer(signature),
+            hexToArrayBuffer(hash)
+          );
+
+          if (verified) {
+            log('Segment verified successfully');
+            verificationStatus.textContent = "Stream verified";
+            verificationStatus.className = "text-center text-sm text-green-600";
+          } else {
+            log('Segment verification failed');
+            verificationStatus.textContent = "Stream verification failed";
+            verificationStatus.className = "text-center text-sm text-red-600";
+          }
+        } catch (error) {
+          log(`Verification error: ${error.message}`);
+          verificationStatus.textContent = "Stream verification error";
           verificationStatus.className = "text-center text-sm text-red-600";
         }
-      } catch (error) {
-        log(`Verification error: ${error.message}`);
-        verificationStatus.textContent = "Stream verification error";
-        verificationStatus.className = "text-center text-sm text-red-600";
       }
-    }
 
-    function hexToArrayBuffer(hexString) {
-      return new Uint8Array(hexString.match(/.{1,2}/g).map(byte => parseInt(byte, 16))).buffer;
-    }
-
-    function base64ToArrayBuffer(base64) {
-      var binary_string = window.atob(base64);
-      var len = binary_string.length;
-      var bytes = new Uint8Array(len);
-      for (var i = 0; i < len; i++) {
-        bytes[i] = binary_string.charCodeAt(i);
+      function hexToArrayBuffer(hexString) {
+        return new Uint8Array(hexString.match(/.{1,2}/g).map(byte => parseInt(byte, 16))).buffer;
       }
-      return bytes.buffer;
-    }
-  </script>
-</body>
 
+      function base64ToArrayBuffer(base64) {
+        var binary_string = window.atob(base64);
+        var len = binary_string.length;
+        var bytes = new Uint8Array(len);
+        for (var i = 0; i < len; i++) {
+          bytes[i] = binary_string.charCodeAt(i);
+        }
+        return bytes.buffer;
+      }
+    </script>
+  </body>
 </html>
