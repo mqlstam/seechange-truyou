@@ -193,35 +193,26 @@ app.get('/publickey/:streamId', (req, res) => {
   }
 });
 
-app.use('/streams/:streamId', (req, res, next) => {
-  const streamId = req.params.streamId;
-  const filePath = path.join(__dirname, 'media', streamId, req.path);
-
-  const streamData = streamKeys.get(streamId);
-  if (!streamData || streamData.expiresAt <= Date.now()) {
-    return res.status(410).send('Stream has ended or expired');
+app.get('/publickey/:streamId', (req, res) => {
+  try {
+    const streamId = req.params.streamId;
+    const streamData = streamKeys.get(streamId);
+    if (streamData && streamData.expiresAt > Date.now()) {
+      const publicKeyPem = streamData.publicKey;
+      const publicKeyBase64 = publicKeyPem
+        .replace(/-----BEGIN PUBLIC KEY-----/, '')
+        .replace(/-----END PUBLIC KEY-----/, '')
+        .replace(/\n/g, '');
+      res.send(publicKeyBase64);
+    } else {
+      res.status(404).send('Stream not found or expired');
+    }
+  } catch (error) {
+    console.error('Error fetching public key:', error);
+    res.status(500).send('Internal Server Error');
   }
-
-  fs.readFile(filePath, (err, data) => {
-    if (err) {
-      return res.status(404).send('File not found');
-    }
-
-    const hash = hashSegment(data);
-    const signature = signHash(hash, streamData.privateKey);
-
-    res.setHeader('X-Segment-Hash', hash);
-    res.setHeader('X-Segment-Signature', signature);
-
-    if (req.path.endsWith('.m3u8')) {
-      res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-    } else if (req.path.endsWith('.ts')) {
-      res.setHeader('Content-Type', 'video/MP2T');
-    }
-
-    res.send(data);
-  });
 });
+
 
 // Performance monitoring
 setInterval(() => {
