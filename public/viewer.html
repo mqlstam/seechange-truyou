@@ -121,7 +121,7 @@
               });
             }
           });
-          hls.loadSource(`/streams/${streamKey}/master.m3u8`);
+          hls.loadSource(`/media/${streamKey}/playlist.m3u8`);
           hls.attachMedia(video);
           hls.on(Hls.Events.MANIFEST_PARSED, () => {
             log('Manifest parsed, attempting to play');
@@ -177,7 +177,6 @@
           showError('Your browser does not support HLS playback.');
         }
       }
-
       async function fetchPublicKey(streamKey) {
         log(`Fetching public key for stream: ${streamKey}`);
         const response = await fetch(`/publickey/${streamKey}`);
@@ -186,35 +185,56 @@
         }
         const publicKeyBase64 = await response.text();
         log(`Public key (base64): ${publicKeyBase64.slice(0, 50)}...`);
-
-        // Convert base64 to ArrayBuffer
-        const binaryDer = atob(publicKeyBase64);
-        const binaryDerBuffer = new ArrayBuffer(binaryDer.length);
-        const binaryDerArray = new Uint8Array(binaryDerBuffer);
-        for (let i = 0; i < binaryDer.length; i++) {
-          binaryDerArray[i] = binaryDer.charCodeAt(i);
+      
+        // Check if Web Crypto API is available
+        if (window.crypto && window.crypto.subtle) {
+          try {
+            // Convert base64 to ArrayBuffer
+            const binaryDer = atob(publicKeyBase64);
+            const binaryDerBuffer = new ArrayBuffer(binaryDer.length);
+            const binaryDerArray = new Uint8Array(binaryDerBuffer);
+            for (let i = 0; i < binaryDer.length; i++) {
+              binaryDerArray[i] = binaryDer.charCodeAt(i);
+            }
+      
+            // Import the public key
+            const importedKey = await window.crypto.subtle.importKey(
+              "spki",
+              binaryDerBuffer,
+              {
+                name: "RSASSA-PKCS1-v1_5",
+                hash: "SHA-256",
+              },
+              true,
+              ["verify"]
+            );
+            log('Public key imported successfully');
+            return importedKey;
+          } catch (error) {
+            log(`Error importing public key: ${error.message}`);
+            // Return the base64 public key as fallback
+            return publicKeyBase64;
+          }
+        } else {
+          log('Web Crypto API not available, using base64 public key');
+          // Return the base64 public key as fallback
+          return publicKeyBase64;
         }
-
-        // Import the public key
-        const importedKey = await window.crypto.subtle.importKey(
-          "spki",
-          binaryDerBuffer,
-          {
-            name: "RSASSA-PKCS1-v1_5",
-            hash: "SHA-256",
-          },
-          true,
-          ["verify"]
-        );
-        log('Public key imported successfully');
-        return importedKey;
       }
 
       async function verifySegment(hash, signature) {
         log('Verifying segment');
         log(`Hash: ${hash}`);
         log(`Signature: ${signature.slice(0, 50)}...`);
-
+      
+        if (typeof publicKey === 'string') {
+          // We're using the fallback method (base64 public key)
+          log('Using fallback verification method');
+          verificationStatus.textContent = "Stream integrity check not available";
+          verificationStatus.className = "text-center text-sm text-yellow-600";
+          return;
+        }
+      
         try {
           const verified = await window.crypto.subtle.verify(
             {
@@ -225,7 +245,7 @@
             base64ToArrayBuffer(signature),
             hexToArrayBuffer(hash)
           );
-
+      
           if (verified) {
             log('Segment verified successfully');
             verificationStatus.textContent = "Stream verified";

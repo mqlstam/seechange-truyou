@@ -6,6 +6,7 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 const crypto = require('crypto');
 const { generateKeyPair, hashSegment, signHash } = require('./crypto-utils');
+const os = require('os');
 
 const app = express();
 const server = http.createServer(app);
@@ -27,10 +28,6 @@ function updateStreamHealth(streamKey, status) {
   });
 }
 
-function getStreamHealth(streamKey) {
-  return streamHealth.get(streamKey);
-}
-
 app.get('/streamer', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'streamer.html'));
 });
@@ -38,6 +35,8 @@ app.get('/streamer', (req, res) => {
 app.get('/viewer', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'viewer.html'));
 });
+
+app.use('/media', express.static(path.join(__dirname, 'media')));
 
 function generateStreamKey() {
   return crypto.randomBytes(8).toString('hex');
@@ -65,83 +64,72 @@ io.on('connection', (socket) => {
       fs.mkdirSync(outputPath, { recursive: true });
     }
 
+    // Determine available hardware acceleration
+    let hwAccel = '';
+    if (os.platform() === 'linux') {
+      if (fs.existsSync('/dev/nvidia0')) {
+        hwAccel = 'h264_nvenc';
+      } else if (fs.existsSync('/dev/dri/renderD128')) {
+        hwAccel = 'h264_vaapi';
+      }
+    } else if (os.platform() === 'win32') {
+      hwAccel = 'h264_qsv';
+    }
+
     ffmpegProcess = spawn('ffmpeg', [
       '-i', 'pipe:0',
-      '-c:v', 'libx264',
-      '-preset', 'superfast',
+      '-c:v', hwAccel ? hwAccel : 'libx264',
+      '-preset', 'ultrafast',
       '-tune', 'zerolatency',
-      '-crf', '28',
+      '-crf', '30',
+      '-g', '240',
+      '-keyint_min', '240',
       '-sc_threshold', '0',
-      '-g', '60',
-      '-keyint_min', '60',
+      '-b:v', '500k',
+      '-maxrate', '600k',
+      '-bufsize', '800k',
       '-c:a', 'aac',
+      '-b:a', '64k',
       '-ar', '44100',
-      '-b:a', '128k',
-      '-map', '0:v',
-      '-map', '0:a',
-      '-map', '0:v',
-      '-map', '0:a',
-      '-map', '0:v',
-      '-map', '0:a',
-      '-var_stream_map', 'v:0,a:0 v:1,a:1 v:2,a:2',
-      '-s:v:1', '1280x720',
-      '-b:v:1', '1000k',
-      '-maxrate:v:1', '1200k',
-      '-bufsize:v:1', '2000k',
-      '-s:v:2', '854x480',
-      '-b:v:2', '600k',
-      '-maxrate:v:2', '800k',
-      '-bufsize:v:2', '1200k',
       '-f', 'hls',
-      '-hls_time', '2',
-      '-hls_list_size', '5',
+      '-hls_time', '4',
+      '-hls_list_size', '10',
       '-hls_flags', 'delete_segments+omit_endlist+append_list+discont_start',
       '-hls_segment_type', 'fmp4',
       '-hls_fmp4_init_filename', 'init.mp4',
-      '-hls_segment_filename', path.join(outputPath, '%v/segment%d.m4s'),
-      '-master_pl_name', 'master.m3u8',
-      '-hls_init_time', '0',
-      path.join(outputPath, '%v/playlist.m3u8')
+      '-hls_segment_filename', path.join(outputPath, 'segment%d.m4s'),
+      path.join(outputPath, 'playlist.m3u8')
     ]);
 
     isFFmpegRunning = true;
 
     ffmpegProcess.stderr.on('data', (data) => {
       // Log FFmpeg output if needed
+      // console.log(`FFmpeg: ${data}`);
     });
 
     ffmpegProcess.on('error', (err) => {
+      console.error('FFmpeg error:', err);
       isFFmpegRunning = false;
       socket.emit('streamError', 'An error occurred while processing the stream.');
     });
 
     ffmpegProcess.on('exit', (code, signal) => {
+      console.log(`FFmpeg process exited with code ${code} and signal ${signal}`);
       isFFmpegRunning = false;
-      if (code !== 0) {
+      if (code !== 0 && code !== null) {
         socket.emit('streamError', 'The streaming process ended unexpectedly.');
-      }
-    });
-
-    ffmpegProcess.stdin.on('error', (err) => {
-      if (err.code === 'EPIPE') {
-        isFFmpegRunning = false;
       }
     });
   }
 
   function writeToFFmpeg(data) {
     if (ffmpegProcess && ffmpegProcess.stdin && !ffmpegProcess.stdin.destroyed) {
-      try {
-        const success = ffmpegProcess.stdin.write(data);
-        if (!success) {
-          ffmpegProcess.stdin.once('drain', () => {
-            // Handle backpressure
-          });
-        }
-      } catch (err) {
-        if (err.code === 'EPIPE') {
-          isFFmpegRunning = false;
-        }
+      const success = ffmpegProcess.stdin.write(data);
+      if (!success) {
+        ffmpegProcess.stdin.once('drain', () => {
+          // Handle backpressure
+        });
       }
     } else {
       socket.emit('streamError', 'Unable to process stream data.');
@@ -149,18 +137,11 @@ io.on('connection', (socket) => {
   }
 
   socket.on('streamData', (data) => {
-    inputBuffer = Buffer.concat([inputBuffer, Buffer.from(data)]);
-    
     if (!isFFmpegRunning) {
       startFFmpeg();
     }
 
-    while (inputBuffer.length >= CHUNK_SIZE) {
-      const chunk = inputBuffer.slice(0, CHUNK_SIZE);
-      inputBuffer = inputBuffer.slice(CHUNK_SIZE);
-      writeToFFmpeg(chunk);
-    }
-
+    writeToFFmpeg(Buffer.from(data));
     updateStreamHealth(streamKey, 'active');
   });
 
@@ -189,30 +170,10 @@ app.get('/publickey/:streamId', (req, res) => {
       res.status(404).send('Stream not found or expired');
     }
   } catch (error) {
-    res.status(500).send('Internal Server Error');
-  }
-});
-
-app.get('/publickey/:streamId', (req, res) => {
-  try {
-    const streamId = req.params.streamId;
-    const streamData = streamKeys.get(streamId);
-    if (streamData && streamData.expiresAt > Date.now()) {
-      const publicKeyPem = streamData.publicKey;
-      const publicKeyBase64 = publicKeyPem
-        .replace(/-----BEGIN PUBLIC KEY-----/, '')
-        .replace(/-----END PUBLIC KEY-----/, '')
-        .replace(/\n/g, '');
-      res.send(publicKeyBase64);
-    } else {
-      res.status(404).send('Stream not found or expired');
-    }
-  } catch (error) {
     console.error('Error fetching public key:', error);
     res.status(500).send('Internal Server Error');
   }
 });
-
 
 // Performance monitoring
 setInterval(() => {
@@ -223,9 +184,8 @@ setInterval(() => {
 }, 60000);
 
 const PORT = process.env.PORT || 3000;
-server.keepAliveTimeout = 120000; // 2 minutes
-server.headersTimeout = 120000; // 2 minutes
+const IP_ADDRESS = '0.0.0.0'; // This allows connections from any IP
 
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+server.listen(PORT, IP_ADDRESS, () => {
+  console.log(`Server running on http://${IP_ADDRESS}:${PORT}`);
 });
