@@ -19,6 +19,8 @@
     "hls-server": "^1.5.0",
     "hls.js": "^1.5.11",
     "http": "^0.0.1-security",
+    "mongodb": "^6.8.0",
+    "mongoose": "^8.4.4",
     "path": "^0.12.7",
     "socket.io": "^4.7.5"
   }
