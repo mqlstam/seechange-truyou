@@ -10,6 +10,7 @@ const os = require("os");
 const mongoose = require("mongoose");
 const { GridFSBucket } = require("mongodb");
 const { PassThrough } = require("stream");
+require("events").EventEmitter.defaultMaxListeners = 20;
 
 const app = express();
 const server = http.createServer(app);
@@ -24,20 +25,24 @@ const CHUNK_SIZE = 1024 * 1024; // 1MB chunks
 // Stream health monitoring
 const streamHealth = new Map();
 
-// MongoDB connection
-const mongoURI =
-  "mongodb+srv://prevfcode:5OgL8arYulfuFpVr@cluster0.euilskk.mongodb.net/FitnessManagementApp?retryWrites=true&w=majority";
-mongoose.connect(mongoURI, { useNewUrlParser: true, useUnifiedTopology: true });
+const connectDB = async () => {
+  try {
+    await mongoose.connect(
+      "mongodb+srv://prevfcode:5OgL8arYulfuFpVr@cluster0.euilskk.mongodb.net/FitnessManagementApp?retryWrites=true&w=majority",
+      {
+        // Remove these options
+        // useNewUrlParser: true,
+        // useUnifiedTopology: true,
+      }
+    );
+    console.log("MongoDB connected");
+  } catch (err) {
+    console.error(err.message);
+    process.exit(1);
+  }
+};
 
-const connection = mongoose.connection;
-let gfs;
-
-connection.once("open", () => {
-  console.log("MongoDB connected");
-  gfs = new GridFSBucket(connection.db, {
-    bucketName: "uploads",
-  });
-});
+connectDB();
 
 function updateStreamHealth(streamKey, status) {
   streamHealth.set(streamKey, {
@@ -198,6 +203,14 @@ io.on("connection", (socket) => {
 
     writeToFFmpeg(Buffer.from(data));
     updateStreamHealth(streamKey, "active");
+  });
+
+  socket.on("error", (err) => {
+    if (err.code === "EPIPE") {
+      console.error("Broken pipe detected, handling gracefully");
+    } else {
+      console.error("Socket error:", err);
+    }
   });
 
   socket.on("disconnect", () => {
