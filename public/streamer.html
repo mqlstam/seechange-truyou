@@ -6,7 +6,46 @@
     <title>SeeChange TruYou Streamer</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="/socket.io/socket.io.js"></script>
-</head>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const socket = io();
+            const video = document.getElementById('video');
+            const startButton = document.getElementById('startButton');
+            const chatForm = document.getElementById('chatForm');
+            const chatInput = document.getElementById('chatInput');
+            const chatMessages = document.getElementById('chatMessages');
+            let mediaRecorder;
+
+            socket.on('streamKey', (streamKey) => {
+                console.log('Stream Key:', streamKey);
+            });
+
+            socket.on('chatMessage', (message) => {
+                const messageElement = document.createElement('li');
+                messageElement.textContent = `${message.timestamp}: ${message.message}`;
+                chatMessages.appendChild(messageElement);
+            });
+
+            startButton.addEventListener('click', async () => {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                video.srcObject = stream;
+                video.play();
+
+                mediaRecorder = new MediaRecorder(stream);
+                mediaRecorder.ondataavailable = (event) => {
+                    socket.emit('streamData', event.data);
+                };
+                mediaRecorder.start(1000);
+            });
+
+            chatForm.addEventListener('submit', (event) => {
+                event.preventDefault();
+                const message = chatInput.value;
+                socket.emit('chatMessage', message);
+                chatInput.value = '';
+            });
+        });
+    </script></head>
 <body class="bg-gray-100 h-screen flex items-center justify-center">
     <div class="bg-white p-8 rounded-lg shadow-md max-w-md w-full">
         <h1 class="text-2xl font-bold mb-4 text-center text-blue-600">SeeChange TruYou Streamer</h1>
@@ -21,7 +60,17 @@
                 Stop Streaming
             </button>
         </div>
+        
         <p id="streamKey" class="mt-4 text-center text-gray-600"></p>
+        <div class="mt-4">
+            <h2 class="text-xl font-bold">Chat</h2>
+            <ul id="chatMessages" class="mb-4"></ul>
+            <form id="chatForm">
+                <input type="text" id="chatInput" class="bg-gray-700 text-white p-2 rounded w-full" placeholder="Type your message here">
+                <button type="submit" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded mt-2">Send</button>
+            </form>
+        </div>
+
     </div>
 
     <script>

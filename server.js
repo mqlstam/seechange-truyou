@@ -24,6 +24,10 @@ const CHUNK_SIZE = 1024 * 1024; // 1MB chunks
 // Stream health monitoring
 const streamHealth = new Map();
 
+// Chat data structure
+const chatMessages = [];
+const viewers = new Map();
+
 // MongoDB connection
 const mongoURI =
   "mongodb+srv://prevfcode:5OgL8arYulfuFpVr@cluster0.euilskk.mongodb.net/FitnessManagementApp?retryWrites=true&w=majority";
@@ -200,6 +204,23 @@ io.on("connection", (socket) => {
     updateStreamHealth(streamKey, "active");
   });
 
+  socket.on("chatMessage", (message) => {
+    const chatMessage = {
+      streamKey,
+      message,
+      timestamp: new Date(),
+    };
+    chatMessages.push(chatMessage);
+    io.emit("chatMessage", chatMessage);
+  });
+
+  socket.on("joinStream", (key) => {
+    if (!viewers.has(key)) {
+      viewers.set(key, new Set());
+    }
+    viewers.get(key).add(socket.id);
+  });
+
   socket.on("disconnect", () => {
     if (ffmpegProcess) {
       ffmpegProcess.stdin.end();
@@ -207,6 +228,11 @@ io.on("connection", (socket) => {
     }
     isFFmpegRunning = false;
     updateStreamHealth(streamKey, "ended");
+
+    // Remove viewer from viewers list
+    viewers.forEach((value, key) => {
+      value.delete(socket.id);
+    });
   });
 });
 
