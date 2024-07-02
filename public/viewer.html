@@ -1,32 +1,80 @@
 <!DOCTYPE html>
 <html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SeeChange TruYou Viewer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SeeChange TruYou Viewer</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-</head>
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const socket = io();
+            const video = document.getElementById('video');
+            const chatForm = document.getElementById('chatForm');
+            const chatInput = document.getElementById('chatInput');
+            const chatMessages = document.getElementById('chatMessages');
 
-<body class="bg-gray-100 h-screen flex items-center justify-center">
-  <div class="bg-white p-8 rounded-lg shadow-md max-w-md w-full">
-    <h1 class="text-2xl font-bold mb-4 text-center text-blue-600">
-      SeeChange TruYou Viewer
-    </h1>
-    <div class="mb-4">
-      <video id="video" controls class="w-full h-64 bg-black rounded"></video>
+            socket.emit('joinStream', 'streamKey'); // Replace 'streamKey' with the actual stream key
+
+            socket.on('chatMessage', (message) => {
+                const messageElement = document.createElement('li');
+                messageElement.textContent = `${message.timestamp}: ${message.message}`;
+                chatMessages.appendChild(messageElement);
+            });
+
+            chatForm.addEventListener('submit', (event) => {
+                event.preventDefault();
+                const message = chatInput.value;
+                socket.emit('chatMessage', message);
+                chatInput.value = '';
+            });
+
+            video.src = '/media/playlist.m3u8';
+            video.play();
+        });
+    </script>  </head>
+  <body class="bg-gray-100 h-screen flex items-center justify-center">
+    <div class="bg-white p-8 rounded-lg shadow-md max-w-md w-full">
+      <h1 class="text-2xl font-bold mb-4 text-center text-blue-600">
+        SeeChange TruYou Viewer
+      </h1>
+      <div class="mb-4">
+        <video id="video" controls class="w-full h-64 bg-black rounded"></video>
+      </div>
+      <div class="flex items-center mb-4">
+        <input
+          type="text"
+          id="streamKeyInput"
+          placeholder="Enter stream key"
+          class="flex-grow mr-2 px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        <button
+          id="loadStreamButton"
+          class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded"
+        >
+          Load Stream
+        </button>
+
+      </div>
+      <div id="verificationStatus" class="text-center text-sm"></div>
+      <div
+        id="errorMessage"
+        class="mt-2 text-center text-sm text-red-600 hidden"
+      ></div>
+      <div
+        id="logContainer"
+        class="mt-4 p-2 bg-gray-100 rounded h-40 overflow-y-auto text-xs"
+      ></div>
     </div>
-    <div class="flex items-center mb-4">
-      <input type="text" id="streamKeyInput" placeholder="Enter stream key"
-        class="flex-grow mr-2 px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" />
-      <button id="loadStreamButton" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded">
-        Load Stream
-      </button>
-    </div>
-    <div id="verificationStatus" class="text-center text-sm"></div>
-    <div id="errorMessage" class="mt-2 text-center text-sm text-red-600 hidden"></div>
-    <div id="logContainer" class="mt-4 p-2 bg-gray-100 rounded h-40 overflow-y-auto text-xs"></div>
+    <div class="mt-4">
+      <h2 class="text-xl font-bold">Chat</h2>
+      <ul id="chatMessages" class="mb-4"></ul>
+      <form id="chatForm">
+          <input type="text" id="chatInput" class="bg-gray-700 text-white p-2 rounded w-full" placeholder="Type your message here">
+          <button type="submit" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded mt-2">Send</button>
+      </form>
   </div>
 
   <script>
