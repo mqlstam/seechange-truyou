@@ -77,9 +77,10 @@ io.on("connection", (socket) => {
 
   function startFFmpeg() {
     const passThroughStream = new PassThrough();
-    const outputPath = path.join(__dirname, "media", streamKey);
+    const outputPath = path.join(__dirname, "media", streamKey); // zoeken naar pad directory
 
     if (!fs.existsSync(outputPath)) {
+      // als niet bestaat dan aanmaken
       fs.mkdirSync(outputPath, { recursive: true });
     }
 
@@ -105,7 +106,8 @@ io.on("connection", (socket) => {
       "-tune",
       "zerolatency",
       "-crf",
-      "30",
+      // "30",
+      "75",
       "-g",
       "240",
       "-keyint_min",
@@ -113,7 +115,9 @@ io.on("connection", (socket) => {
       "-sc_threshold",
       "0",
       "-b:v",
-      "500k",
+      // "500k",
+
+      "50k",
       "-maxrate",
       "600k",
       "-bufsize",
@@ -121,7 +125,8 @@ io.on("connection", (socket) => {
       "-c:a",
       "aac",
       "-b:a",
-      "64k",
+      // "64k",
+      "8k",
       "-ar",
       "44100",
       "-f",
