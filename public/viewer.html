@@ -29,6 +29,15 @@
           Load Stream
         </button>
       </div>
+      <div class="flex items-center justify-between mb-4">
+        <span id="modificationStatus" class="text-sm">Modification: OFF</span>
+        <button
+          id="toggleModificationButton"
+          class="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded"
+        >
+          Toggle Modification
+        </button>
+      </div>
       <div id="verificationStatus" class="text-center text-sm"></div>
       <div
         id="errorMessage"
@@ -39,57 +48,81 @@
         class="mt-4 p-2 bg-gray-100 rounded h-40 overflow-y-auto text-xs"
       ></div>
     </div>
-
     <script>
-      const video = document.getElementById('video');
-      const streamKeyInput = document.getElementById('streamKeyInput');
-      const loadStreamButton = document.getElementById('loadStreamButton');
-      const verificationStatus = document.getElementById('verificationStatus');
-      const errorMessage = document.getElementById('errorMessage');
-      const logContainer = document.getElementById('logContainer');
+      const video = document.getElementById("video");
+      const streamKeyInput = document.getElementById("streamKeyInput");
+      const loadStreamButton = document.getElementById("loadStreamButton");
+      const verificationStatus = document.getElementById("verificationStatus");
+      const errorMessage = document.getElementById("errorMessage");
+      const logContainer = document.getElementById("logContainer");
+      const toggleModificationButton = document.getElementById(
+        "toggleModificationButton"
+      );
+      const modificationStatus = document.getElementById("modificationStatus");
+
       let publicKey;
       let hls;
 
       loadStreamButton.onclick = loadStream;
 
+      toggleModificationButton.onclick = async function() {
+        try {
+            const response = await fetch('http://127.0.0.1:3001/toggleModification');
+          const data = await response.json();
+          modificationStatus.textContent = `Modification: ${
+            data.modificationEnabled ? "ON" : "OFF"
+          }`;
+          log(
+            `Stream modification ${
+              data.modificationEnabled ? "enabled" : "disabled"
+            }`
+          );
+        } catch (error) {
+          log(`Error toggling modification: ${error.message}`);
+        }
+      };
+
       function log(message) {
-        const logEntry = document.createElement('div');
-        logEntry.textContent = `${new Date().toISOString().substr(11, 8)} - ${message}`;
+        const logEntry = document.createElement("div");
+        logEntry.textContent = `${new Date()
+          .toISOString()
+          .substr(11, 8)} - ${message}`;
         logContainer.appendChild(logEntry);
         logContainer.scrollTop = logContainer.scrollHeight;
       }
 
       function showError(message) {
         errorMessage.textContent = message;
-        errorMessage.classList.remove('hidden');
+        errorMessage.classList.remove("hidden");
       }
 
       function hideError() {
-        errorMessage.textContent = '';
-        errorMessage.classList.add('hidden');
+        errorMessage.textContent = "";
+        errorMessage.classList.add("hidden");
       }
 
       async function loadStream() {
         hideError();
         const streamKey = streamKeyInput.value;
         if (!streamKey) {
-          showError('Please enter a stream key');
+          showError("Please enter a stream key");
           return;
         }
-
         log(`Loading stream with key: ${streamKey}`);
 
         try {
           publicKey = await fetchPublicKey(streamKey);
-          log('Public key fetched successfully');
+          log("Public key fetched successfully");
         } catch (error) {
           log(`Error fetching public key: ${error.message}`);
-          showError('Error fetching public key. Please check the stream key and try again.');
+          showError(
+            "Error fetching public key. Please check the stream key and try again."
+          );
           return;
         }
 
         if (Hls.isSupported()) {
-          log('HLS.js is supported');
+          log("HLS.js is supported");
           if (hls) {
             hls.destroy();
           }
@@ -109,22 +142,35 @@
             startFragPrefetch: true,
             maxBufferLength: 1,
             maxMaxBufferLength: 1,
-            xhrSetup: function(xhr, url) {
-              xhr.addEventListener('load', function() {
+            xhrSetup: function (xhr, url) {
+              xhr.addEventListener("load", function () {
                 if (xhr.status === 200) {
-                  const hash = xhr.getResponseHeader('X-Segment-Hash');
-                  const signature = xhr.getResponseHeader('X-Segment-Signature');
+                  const hash = xhr.getResponseHeader("X-Segment-Hash");
+                  const signature = xhr.getResponseHeader(
+                    "X-Segment-Signature"
+                  );
                   if (hash && signature) {
                     verifySegment(hash, signature);
                   }
                 }
               });
-            }
+            },
           });
-          hls.loadSource(`/media/${streamKey}/playlist.m3u8`);
+          hls.loadSource(
+            hls.loadSource(`http://127.0.0.1:3001/media/${streamKey}/playlist.m3u8`
+          );
+          
           hls.attachMedia(video);
           hls.on(Hls.Events.MANIFEST_PARSED, () => {
-            log('Manifest parsed, attempting to play');
+            log("Manifest parsed, attempting to play");
+            video.play();
+          });
+          hls.loadSource(
+            `http://localhost:3001/media/${streamKey}/playlist.m3u8`
+          );
+          hls.attachMedia(video);
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            log("Manifest parsed, attempting to play");
             video.play();
           });
           hls.on(Hls.Events.LEVEL_SWITCHING, (event, data) => {
@@ -149,17 +195,17 @@
           hls.on(Hls.Events.ERROR, function (event, data) {
             log(`HLS error: ${data.type}`);
             if (data.fatal) {
-              switch(data.type) {
+              switch (data.type) {
                 case Hls.ErrorTypes.NETWORK_ERROR:
-                  log('Fatal network error encountered, trying to recover');
+                  log("Fatal network error encountered, trying to recover");
                   hls.startLoad();
                   break;
                 case Hls.ErrorTypes.MEDIA_ERROR:
-                  log('Fatal media error encountered, trying to recover');
+                  log("Fatal media error encountered, trying to recover");
                   hls.recoverMediaError();
                   break;
                 default:
-                  log('Fatal error, cannot recover');
+                  log("Fatal error, cannot recover");
                   hls.destroy();
                   break;
               }
@@ -167,25 +213,27 @@
           });
         } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
           log('Native HLS playback supported');
-          video.src = `/streams/${streamKey}/master.m3u8`;
-          video.addEventListener('loadedmetadata', () => {
-            log('Metadata loaded, attempting to play');
+          video.src = `http://127.0.0.1:3001/media/${streamKey}/playlist.m3u8`;
+          video.addEventListener("loadedmetadata", () => {
+            log("Metadata loaded, attempting to play");
             video.play();
           });
         } else {
-          log('HLS is not supported on this browser');
-          showError('Your browser does not support HLS playback.');
+          log("HLS is not supported on this browser");
+          showError("Your browser does not support HLS playback.");
         }
       }
+
       async function fetchPublicKey(streamKey) {
         log(`Fetching public key for stream: ${streamKey}`);
         const response = await fetch(`/publickey/${streamKey}`);
         if (!response.ok) {
-          throw new Error(`Failed to fetch public key: ${response.status} ${response.statusText}`);
+          throw new Error(
+            `Failed to fetch public key: ${response.status} ${response.statusText}`
+          );
         }
         const publicKeyBase64 = await response.text();
         log(`Public key (base64): ${publicKeyBase64.slice(0, 50)}...`);
-      
         // Check if Web Crypto API is available
         if (window.crypto && window.crypto.subtle) {
           try {
@@ -196,7 +244,7 @@
             for (let i = 0; i < binaryDer.length; i++) {
               binaryDerArray[i] = binaryDer.charCodeAt(i);
             }
-      
+
             // Import the public key
             const importedKey = await window.crypto.subtle.importKey(
               "spki",
@@ -208,7 +256,7 @@
               true,
               ["verify"]
             );
-            log('Public key imported successfully');
+            log("Public key imported successfully");
             return importedKey;
           } catch (error) {
             log(`Error importing public key: ${error.message}`);
@@ -216,42 +264,40 @@
             return publicKeyBase64;
           }
         } else {
-          log('Web Crypto API not available, using base64 public key');
+          log("Web Crypto API not available, using base64 public key");
           // Return the base64 public key as fallback
           return publicKeyBase64;
         }
       }
-
       async function verifySegment(hash, signature) {
-        log('Verifying segment');
+        log("Verifying segment");
         log(`Hash: ${hash}`);
         log(`Signature: ${signature.slice(0, 50)}...`);
-      
-        if (typeof publicKey === 'string') {
+        if (typeof publicKey === "string") {
           // We're using the fallback method (base64 public key)
-          log('Using fallback verification method');
-          verificationStatus.textContent = "Stream integrity check not available";
+          log("Using fallback verification method");
+          verificationStatus.textContent =
+            "Stream integrity check not available";
           verificationStatus.className = "text-center text-sm text-yellow-600";
           return;
         }
-      
+
         try {
           const verified = await window.crypto.subtle.verify(
             {
               name: "RSASSA-PKCS1-v1_5",
-              hash: {name: "SHA-256"},
+              hash: { name: "SHA-256" },
             },
             publicKey,
             base64ToArrayBuffer(signature),
             hexToArrayBuffer(hash)
           );
-      
           if (verified) {
-            log('Segment verified successfully');
+            log("Segment verified successfully");
             verificationStatus.textContent = "Stream verified";
             verificationStatus.className = "text-center text-sm text-green-600";
           } else {
-            log('Segment verification failed');
+            log("Segment verification failed");
             verificationStatus.textContent = "Stream verification failed";
             verificationStatus.className = "text-center text-sm text-red-600";
           }
@@ -263,7 +309,9 @@
       }
 
       function hexToArrayBuffer(hexString) {
-        return new Uint8Array(hexString.match(/.{1,2}/g).map(byte => parseInt(byte, 16))).buffer;
+        return new Uint8Array(
+          hexString.match(/.{1,2}/g).map((byte) => parseInt(byte, 16))
+        ).buffer;
       }
 
       function base64ToArrayBuffer(base64) {

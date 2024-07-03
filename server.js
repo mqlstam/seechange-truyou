@@ -184,8 +184,6 @@ setInterval(() => {
 }, 60000);
 
 const PORT = process.env.PORT || 3000;
-const IP_ADDRESS = '0.0.0.0'; // This allows connections from any IP
-
-server.listen(PORT, IP_ADDRESS, () => {
-  console.log(`Server running on http://${IP_ADDRESS}:${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on http://0.0.0.0:${PORT}`);
 });
